@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>FPV Table Tennis - Báo Động Đa Dạng Sinh Học</title>
+<style>
+  body { margin: 0; padding: 0; background: #0b1a13; overflow: hidden; font-family: sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  #hud {
+    position: absolute; top: 15px; left: 20px; color: #4ade80;
+    font-size: 20px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    pointer-events: none; z-index: 5;
+  }
+  #quizModal {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 15, 10, 0.9); display: none;
+    flex-direction: column; justify-content: center; align-items: center;
+    color: #fff; z-index: 10; padding: 20px; box-sizing: border-box;
+  }
+  .box {
+    background: #132e22; border: 2px solid #22c55e; border-radius: 12px;
+    padding: 24px; max-width: 500px; width: 90%; text-align: center;
+  }
+  .q-title { font-size: 18px; margin-bottom: 18px; font-weight: bold; line-height: 1.4; }
+  .btn-opt {
+    display: block; width: 100%; margin: 8px 0; padding: 12px;
+    background: #1c4b37; border: 1px solid #34d399; color: #fff;
+    border-radius: 6px; cursor: pointer; font-size: 15px; text-align: left;
+  }
+  .btn-opt:active { background: #22c55e; }
+  #msg {
+    position: absolute; bottom: 20px; width: 100%; text-align: center;
+    color: #a7f3d0; font-size: 15px; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">Điểm: <span id="scoreVal">0</span> | Lần đánh: <span id="hitVal">0</span></div>
+<div id="msg">Di chuột hoặc chạm ngón tay để điều khiển vợt đón bóng!</div>
+<canvas id="gameCanvas"></canvas>
+
+<div id="quizModal">
+  <div class="box">
+    <div id="qText" class="q-title"></div>
+    <div id="qOptions"></div>
+  </div>
+</div>
+
+<script>
+const questions = [
+  { q: "Cấp độ nào KHÔNG thuộc 3 cấp độ đa dạng sinh học cốt lõi?", a: ["Đa dạng gen", "Đa dạng cá thể", "Đa dạng loài", "Đa dạng hệ sinh thái"], c: 1 },
+  { q: "IPBES cảnh báo có bao nhiêu loài sinh vật đang đối mặt nguy cơ tuyệt chủng?", a: ["Hơn 10.000 loài", "Hơn 100.000 loài", "Hơn 1 triệu loài", "Hơn 5 triệu loài"], c: 2 },
+  { q: "Tốc độ tuyệt chủng hiện nay đang nhanh gấp bao nhiêu lần tốc độ tự nhiên?", a: ["10 lần", "100 lần", "1.000 lần", "10.000 lần"], c: 2 },
+  { q: "Nguyên nhân chính gây mất và chia cắt môi trường sống tự nhiên là gì?", a: ["Phá rừng & đô thị hóa", "Mưa đá", "Trồng rừng nhân tạo", "Săn bắt chim én"], c: 0 },
+  { q: "Bộ phận nào sau đây thường xuyên bị buôn bán phi pháp trên thị trường đen?", a: ["Ngà voi, sừng tê giác", "Lông cừu", "Da bò", "Vỏ ốc"], c: 0 },
+  { q: "Nhiệt độ toàn cầu tăng đã tẩy trắng bao nhiêu phần trăm rạn san hô?", a: ["30%", "50%", "70%", "90%"], c: 3 },
+  { q: "Mắt xích sinh thái nào suy giảm làm đe dọa trực tiếp an ninh lương thực?", a: ["Loài gặm nhấm", "Loài thụ phấn", "Động vật ăn cỏ", "Côn trùng đất"], c: 1 },
+  { q: "Loài tê giác nào hiện chỉ còn duy nhất 2 cá thể cái trên thế giới?", a: ["Tê giác Java", "Tê giác một sừng", "Tê giác trắng Bắc Phi", "Tê giác đen"], c: 2 },
+  { q: "Hành động cấp quốc gia mang tính vĩ mô để giữ gìn sinh quyển là gì?", a: ["Mở rộng khu bảo tồn", "Dọn rác nhà ở", "Nuôi thú cảnh", "Tắt đèn bàn học"], c: 0 },
+  { q: "Trách nhiệm cá nhân hàng đầu để bảo vệ muông thú hoang dã là gì?", a: ["Nuôi thú quý hiếm", "Nói không với tiêu thụ sản phẩm cấm", "Săn bắt giải trí", "Khai thác gỗ"], c: 1 }
+];
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let score = 0, hits = 0, qIdx = 0, isPaused = false;
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+let paddle = { x: window.innerWidth / 2, y: window.innerHeight * 0.75, r: 60 };
+
+function updatePaddle(clientX, clientY) {
+  paddle.x = clientX;
+  paddle.y = clientY;
+}
+window.addEventListener('mousemove', e => updatePaddle(e.clientX, e.clientY));
+window.addEventListener('touchmove', e => {
+  if (e.touches.length > 0) updatePaddle(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: true });
+
+let ball = { x: 0, y: 0, z: 1, vx: 0.005, vy: 0.002, vz: -0.015 };
+
+function resetBall(missed = false) {
+  ball.z = 1.0;
+  ball.x = (Math.random() - 0.5) * 0.5;
+  ball.y = -0.1;
+  ball.vz = -0.012 - Math.min(hits * 0.001, 0.015);
+  ball.vx = (Math.random() - 0.5) * 0.012;
+  ball.vy = 0.004;
+  if (missed) {
+    document.getElementById('msg').innerText = "Trượt bóng rồi! Hãy thử đón lại quả mới.";
+  }
+}
+resetBall();
+
+function triggerQuestion() {
+  isPaused = true;
+  const qData = questions[qIdx % questions.length];
+  document.getElementById('qText').innerText = `Câu hỏi (${(qIdx % questions.length) + 1}/10): ${qData.q}`;
+  const optBox = document.getElementById('qOptions');
+  optBox.innerHTML = '';
+  qData.a.forEach((opt, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'btn-opt';
+    btn.innerText = `${String.fromCharCode(65 + idx)}. ${opt}`;
+    btn.onclick = () => {
+      if (idx === qData.c) {
+        score += 10;
+        alert("Chính xác! +10 điểm.");
+      } else {
+        alert("Chưa chính xác! Cố gắng ở câu tiếp theo nhé.");
+      }
+      document.getElementById('scoreVal').innerText = score;
+      document.getElementById('quizModal').style.display = 'none';
+      qIdx++;
+      isPaused = false;
+      resetBall();
+    };
+    optBox.appendChild(btn);
+  });
+  document.getElementById('quizModal').style.display = 'flex';
+}
+
+function loop() {
+  if (!isPaused) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const W = canvas.width, H = canvas.height;
+
+    ctx.fillStyle = '#064e3b';
+    ctx.beginPath();
+    ctx.moveTo(W * 0.35, H * 0.45);
+    ctx.lineTo(W * 0.65, H * 0.45);
+    ctx.lineTo(W * 0.95, H * 0.95);
+    ctx.lineTo(W * 0.05, H * 0.95);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.beginPath();
+    ctx.moveTo(W * 0.30, H * 0.58);
+    ctx.lineTo(W * 0.70, H * 0.58);
+    ctx.stroke();
+
+    ball.z += ball.vz;
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    const scale = (1 - ball.z);
+    const screenX = W * 0.5 + ball.x * W * (1 + scale * 2);
+    const screenY = H * 0.45 + (ball.y + scale * 0.45) * H;
+    const radius = 6 + scale * 26;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(screenX, screenY + radius * 0.5, radius * 0.9, radius * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#f97316';
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (ball.z <= 0.05) {
+      const dist = Math.hypot(screenX - paddle.x, screenY - paddle.y);
+      if (dist < paddle.r + radius) {
+        hits++;
+        document.getElementById('hitVal').innerText = hits;
+        document.getElementById('msg').innerText = "Đập trúng bóng! Trả lời câu hỏi kiến thức:";
+        triggerQuestion();
+      } else {
+        resetBall(true);
+      }
+    }
+
+    ctx.fillStyle = '#b91c1c';
+    ctx.beginPath();
+    ctx.arc(paddle.x, paddle.y, paddle.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#000';
+    ctx.stroke();
+
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(paddle.x - 8, paddle.y + paddle.r - 5, 16, 45);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
